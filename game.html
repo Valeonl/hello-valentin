@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Пинг-понг</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; background: radial-gradient(circle at 50% 0%, #1b2c4a 0%, #080d18 70%);
+    color: #f5f2ea; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; padding: 12px;
+  }
+  h1 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: .18em;
+       text-transform: uppercase; color: #7f93b3; }
+  canvas { display: block; border-radius: 14px; background: #0d1526;
+           box-shadow: 0 0 0 1px #22314f, 0 18px 50px rgba(0,0,0,.6);
+           touch-action: none; max-width: 96vw; }
+  .hint { font-size: .8rem; color: #6d7f9d; text-align: center; }
+  button {
+    font: inherit; padding: .6rem 1.6rem; border: 0; border-radius: 999px; cursor: pointer;
+    background: linear-gradient(135deg, #ffd400, #ffb347); color: #10203a; font-weight: 700;
+  }
+  button:active { transform: scale(.97); }
+</style>
+</head>
+<body>
+  <h1>Пинг-понг</h1>
+  <canvas id="c" width="720" height="440"></canvas>
+  <div class="hint" id="hint">Ведите пальцем или мышью по полю · пробел — пауза</div>
+  <button id="again" hidden>Ещё раз</button>
+
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const hint = document.getElementById('hint'), again = document.getElementById('again');
+  const W = cv.width, H = cv.height;
+  const PW = 14, PH = 92, MARGIN = 22;
+
+  let player, ai, ball, score, running, paused;
+
+  function reset(dir) {
+    player = { y: H / 2 - PH / 2 };
+    ai = { y: H / 2 - PH / 2 };
+    ball = { x: W / 2, y: H / 2, vx: 6.2 * dir, vy: (Math.random() * 5 - 2.5), r: 9 };
+  }
+
+  function newGame() {
+    reset(Math.random() < .5 ? 1 : -1);
+    score = { me: 0, ai: 0 };
+    running = true; paused = false;
+    again.hidden = true;
+    hint.textContent = 'Ведите пальцем или мышью по полю · пробел — пауза';
+  }
+
+  // Player paddle follows the pointer, clamped inside the field.
+  function moveTo(clientY) {
+    const rect = cv.getBoundingClientRect();
+    const y = (clientY - rect.top) * (H / rect.height) - PH / 2;
+    player.y = Math.max(0, Math.min(H - PH, y));
+  }
+  cv.addEventListener('pointermove', e => moveTo(e.clientY));
+  cv.addEventListener('pointerdown', e => moveTo(e.clientY));
+  cv.addEventListener('touchmove', e => { e.preventDefault(); moveTo(e.touches[0].clientY); }, { passive: false });
+
+  addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); paused = !paused; }
+  });
+
+  again.onclick = newGame;
+  newGame();
+
+  function step() {
+    if (paused) return;
+
+    // AI tracks the ball with a deliberate speed cap, so it is beatable.
+    const target = ball.y - PH / 2;
+    const speed = 5.0;
+    ai.y += Math.max(-speed, Math.min(speed, target - ai.y));
+    ai.y = Math.max(0, Math.min(H - PH, ai.y));
+
+    ball.x += ball.vx; ball.y += ball.vy;
+
+    if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy *= -1; }
+    if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy *= -1; }
+
+    // Player paddle (left), then AI paddle (right); each hit adds a little speed.
+    if (ball.vx < 0 && ball.x - ball.r < MARGIN + PW && ball.x > MARGIN &&
+        ball.y > player.y && ball.y < player.y + PH) {
+      ball.x = MARGIN + PW + ball.r;
+      ball.vx = -ball.vx * 1.06;
+      ball.vy += (ball.y - (player.y + PH / 2)) * 0.10;
+    }
+    if (ball.vx > 0 && ball.x + ball.r > W - MARGIN - PW && ball.x < W - MARGIN &&
+        ball.y > ai.y && ball.y < ai.y + PH) {
+      ball.x = W - MARGIN - PW - ball.r;
+      ball.vx = -ball.vx * 1.06;
+      ball.vy += (ball.y - (ai.y + PH / 2)) * 0.10;
+    }
+
+    // Cap the vertical speed so the ball never becomes unplayable.
+    ball.vy = Math.max(-11, Math.min(11, ball.vy));
+
+    if (ball.x < -30) { score.ai++; endOrContinue(-1); }
+    if (ball.x > W + 30) { score.me++; endOrContinue(1); }
+  }
+
+  function endOrContinue(dir) {
+    if (score.me >= 7 || score.ai >= 7) {
+      running = false;
+      hint.textContent = score.me >= 7 ? 'Вы победили! 🎉' : 'Победил соперник';
+      again.hidden = false;
+      again.textContent = 'Ещё раз';
+    } else {
+      reset(dir);
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Centre line
+    ctx.strokeStyle = '#1b2740'; ctx.lineWidth = 3; ctx.setLineDash([10, 14]);
+    ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+
+    // Score
+    ctx.fillStyle = '#2a3a5c'; ctx.font = 'bold 76px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(score.me, W / 2 - 70, 60);
+    ctx.fillText(score.ai, W / 2 + 70, 60);
+
+    // Paddles
+    ctx.fillStyle = '#ffd400';
+    ctx.beginPath(); ctx.roundRect(MARGIN, player.y, PW, PH, 7); ctx.fill();
+    ctx.fillStyle = '#7fd4ff';
+    ctx.beginPath(); ctx.roundRect(W - MARGIN - PW, ai.y, PW, PH, 7); ctx.fill();
+
+    // Ball
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+
+    if (paused) {
+      ctx.fillStyle = 'rgba(8,13,24,.72)'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#f5f2ea'; ctx.font = 'bold 34px "Segoe UI", sans-serif';
+      ctx.fillText('Пауза', W / 2, H / 2);
+    }
+  }
+
+  (function loop() {
+    if (running) step();
+    draw();
+    requestAnimationFrame(loop);
+  })();
+})();
+</script>
+</body>
+</html>
