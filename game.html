@@ -9,134 +9,170 @@
   html, body { height: 100%; margin: 0; }
   body {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 14px; background: radial-gradient(circle at 50% 0%, #1b2c4a 0%, #080d18 70%);
+    gap: 12px; background: radial-gradient(circle at 50% 0%, #1b2c4a 0%, #080d18 70%);
     color: #f5f2ea; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; padding: 12px;
   }
-  h1 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: .18em;
+  h1 { margin: 0; font-size: .95rem; font-weight: 600; letter-spacing: .18em;
        text-transform: uppercase; color: #7f93b3; }
   canvas { display: block; border-radius: 14px; background: #0d1526;
            box-shadow: 0 0 0 1px #22314f, 0 18px 50px rgba(0,0,0,.6);
            touch-action: none; max-width: 96vw; }
-  .hint { font-size: .8rem; color: #6d7f9d; text-align: center; }
+  .modes { display: flex; gap: 10px; }
   button {
-    font: inherit; padding: .6rem 1.6rem; border: 0; border-radius: 999px; cursor: pointer;
-    background: linear-gradient(135deg, #ffd400, #ffb347); color: #10203a; font-weight: 700;
+    font: inherit; padding: .55rem 1.4rem; border: 0; border-radius: 999px; cursor: pointer;
+    background: #17253d; color: #cfe0f5; font-weight: 600;
   }
+  button.on { background: linear-gradient(135deg, #ffd400, #ffb347); color: #10203a; }
   button:active { transform: scale(.97); }
+  .hint { font-size: .8rem; color: #6d7f9d; text-align: center; line-height: 1.6; }
+  kbd { background: #1b2740; border-radius: 4px; padding: 1px 6px; font-family: inherit;
+        font-size: .95em; color: #cfe0f5; }
 </style>
 </head>
 <body>
   <h1>Пинг-понг</h1>
+  <div class="modes">
+    <button id="m2" class="on">Вдвоём</button>
+    <button id="m1">Против компьютера</button>
+  </div>
   <canvas id="c" width="720" height="440"></canvas>
-  <div class="hint" id="hint">Ведите пальцем или мышью по полю · пробел — пауза</div>
-  <button id="again" hidden>Ещё раз</button>
+  <div class="hint" id="hint"></div>
 
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-  const hint = document.getElementById('hint'), again = document.getElementById('again');
+  const hintEl = document.getElementById('hint');
+  const b1 = document.getElementById('m1'), b2 = document.getElementById('m2');
   const W = cv.width, H = cv.height;
-  const PW = 14, PH = 92, MARGIN = 22;
+  const PW = 14, PH = 92, MARGIN = 22, SPEED = 7.2, TARGET = 7;
 
-  let player, ai, ball, score, running, paused;
+  let mode, left, right, ball, score, running, paused;
+  const keys = new Set();
+  mode = 'duo';                                  // two humans on one keyboard
 
   function reset(dir) {
-    player = { y: H / 2 - PH / 2 };
-    ai = { y: H / 2 - PH / 2 };
-    ball = { x: W / 2, y: H / 2, vx: 6.2 * dir, vy: (Math.random() * 5 - 2.5), r: 9 };
+    left  = { y: H / 2 - PH / 2 };
+    right = { y: H / 2 - PH / 2 };
+    ball  = { x: W / 2, y: H / 2, vx: 5.6 * dir, vy: Math.random() * 5 - 2.5, r: 9 };
+  }
+
+  const LEFT_UP = 'KeyW',  LEFT_DOWN = 'KeyS';
+  const RIGHT_UP = 'ArrowUp', RIGHT_DOWN = 'ArrowDown';
+
+  function showHint(finished) {
+    if (finished) {
+      const who = mode === 'duo'
+        ? (score.l > score.r ? 'Победил левый игрок 🎉' : 'Победил правый игрок 🎉')
+        : (score.l > score.r ? 'Вы победили 🎉' : 'Победил компьютер');
+      hintEl.innerHTML = who + ' · <kbd>R</kbd> — новая игра';
+      return;
+    }
+    hintEl.innerHTML = mode === 'duo'
+      ? 'Левый игрок: <kbd>W</kbd> <kbd>S</kbd> · Правый игрок: <kbd>↑</kbd> <kbd>↓</kbd>'
+        + ' · <kbd>пробел</kbd> — пауза · до ' + TARGET + ' очков'
+      : 'Вы: <kbd>W</kbd> <kbd>S</kbd> или мышь · <kbd>пробел</kbd> — пауза · до '
+        + TARGET + ' очков';
   }
 
   function newGame() {
     reset(Math.random() < .5 ? 1 : -1);
-    score = { me: 0, ai: 0 };
+    score = { l: 0, r: 0 };
     running = true; paused = false;
-    again.hidden = true;
-    hint.textContent = 'Ведите пальцем или мышью по полю · пробел — пауза';
+    b1.classList.toggle('on', mode === 'solo');
+    b2.classList.toggle('on', mode === 'duo');
+    showHint(false);
   }
 
-  // Player paddle follows the pointer, clamped inside the field.
-  function moveTo(clientY) {
-    const rect = cv.getBoundingClientRect();
-    const y = (clientY - rect.top) * (H / rect.height) - PH / 2;
-    player.y = Math.max(0, Math.min(H - PH, y));
-  }
-  cv.addEventListener('pointermove', e => moveTo(e.clientY));
-  cv.addEventListener('pointerdown', e => moveTo(e.clientY));
-  cv.addEventListener('touchmove', e => { e.preventDefault(); moveTo(e.touches[0].clientY); }, { passive: false });
+  b1.onclick = () => { mode = 'solo'; newGame(); };
+  b2.onclick = () => { mode = 'duo';  newGame(); };
 
   addEventListener('keydown', e => {
-    if (e.code === 'Space') { e.preventDefault(); paused = !paused; }
+    if (['ArrowUp', 'ArrowDown', 'Space', 'KeyW', 'KeyS'].includes(e.code)) e.preventDefault();
+    if (e.code === 'Space') { if (!e.repeat) paused = !paused; return; }
+    if (e.code === 'KeyR') { newGame(); return; }
+    keys.add(e.code);
   });
+  addEventListener('keyup', e => keys.delete(e.code));
+  addEventListener('blur', () => keys.clear());
 
-  again.onclick = newGame;
-  newGame();
+  // Pointer control for the left paddle — this is the phone-friendly path in solo.
+  function moveTo(clientY) {
+    const r = cv.getBoundingClientRect();
+    const y = (clientY - r.top) * (H / r.height) - PH / 2;
+    left.y = Math.max(0, Math.min(H - PH, y));
+  }
+  cv.addEventListener('pointermove', e => { if (mode === 'solo') moveTo(e.clientY); });
+  cv.addEventListener('pointerdown', e => { if (mode === 'solo') moveTo(e.clientY); });
+  cv.addEventListener('touchmove', e => {
+    if (mode !== 'solo') return;
+    e.preventDefault(); moveTo(e.touches[0].clientY);
+  }, { passive: false });
+
+  function movePaddles() {
+    if (keys.has(LEFT_UP))   left.y -= SPEED;
+    if (keys.has(LEFT_DOWN)) left.y += SPEED;
+    left.y = Math.max(0, Math.min(H - PH, left.y));
+
+    if (mode === 'duo') {
+      if (keys.has(RIGHT_UP))   right.y -= SPEED;
+      if (keys.has(RIGHT_DOWN)) right.y += SPEED;
+    } else {
+      const target = ball.y - PH / 2;            // capped, so the computer is beatable
+      right.y += Math.max(-5.0, Math.min(5.0, target - right.y));
+    }
+    right.y = Math.max(0, Math.min(H - PH, right.y));
+  }
 
   function step() {
-    if (paused) return;
-
-    // AI tracks the ball with a deliberate speed cap, so it is beatable.
-    const target = ball.y - PH / 2;
-    const speed = 5.0;
-    ai.y += Math.max(-speed, Math.min(speed, target - ai.y));
-    ai.y = Math.max(0, Math.min(H - PH, ai.y));
-
+    movePaddles();
     ball.x += ball.vx; ball.y += ball.vy;
 
     if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy *= -1; }
     if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy *= -1; }
 
-    // Player paddle (left), then AI paddle (right); each hit adds a little speed.
     if (ball.vx < 0 && ball.x - ball.r < MARGIN + PW && ball.x > MARGIN &&
-        ball.y > player.y && ball.y < player.y + PH) {
+        ball.y > left.y && ball.y < left.y + PH) {
       ball.x = MARGIN + PW + ball.r;
-      ball.vx = -ball.vx * 1.06;
-      ball.vy += (ball.y - (player.y + PH / 2)) * 0.10;
+      ball.vx = -ball.vx * 1.05;
+      ball.vy += (ball.y - (left.y + PH / 2)) * 0.11;   // angle depends on where it lands
     }
     if (ball.vx > 0 && ball.x + ball.r > W - MARGIN - PW && ball.x < W - MARGIN &&
-        ball.y > ai.y && ball.y < ai.y + PH) {
+        ball.y > right.y && ball.y < right.y + PH) {
       ball.x = W - MARGIN - PW - ball.r;
-      ball.vx = -ball.vx * 1.06;
-      ball.vy += (ball.y - (ai.y + PH / 2)) * 0.10;
+      ball.vx = -ball.vx * 1.05;
+      ball.vy += (ball.y - (right.y + PH / 2)) * 0.11;
     }
-
-    // Cap the vertical speed so the ball never becomes unplayable.
     ball.vy = Math.max(-11, Math.min(11, ball.vy));
 
-    if (ball.x < -30) { score.ai++; endOrContinue(-1); }
-    if (ball.x > W + 30) { score.me++; endOrContinue(1); }
+    if (ball.x < -30) { score.r++; afterPoint(-1); }
+    if (ball.x > W + 30) { score.l++; afterPoint(1); }
   }
 
-  function endOrContinue(dir) {
-    if (score.me >= 7 || score.ai >= 7) {
+  function afterPoint(dir) {
+    if (score.l >= TARGET || score.r >= TARGET) {
       running = false;
-      hint.textContent = score.me >= 7 ? 'Вы победили! 🎉' : 'Победил соперник';
-      again.hidden = false;
-      again.textContent = 'Ещё раз';
-    } else {
-      reset(dir);
+      showHint(true);
+      return;
     }
+    reset(dir);
   }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
 
-    // Centre line
     ctx.strokeStyle = '#1b2740'; ctx.lineWidth = 3; ctx.setLineDash([10, 14]);
     ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
 
-    // Score
     ctx.fillStyle = '#2a3a5c'; ctx.font = 'bold 76px "Segoe UI", sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(score.me, W / 2 - 70, 60);
-    ctx.fillText(score.ai, W / 2 + 70, 60);
+    ctx.fillText(score.l, W / 2 - 70, 60);
+    ctx.fillText(score.r, W / 2 + 70, 60);
 
-    // Paddles
-    ctx.fillStyle = '#ffd400';
-    ctx.beginPath(); ctx.roundRect(MARGIN, player.y, PW, PH, 7); ctx.fill();
-    ctx.fillStyle = '#7fd4ff';
-    ctx.beginPath(); ctx.roundRect(W - MARGIN - PW, ai.y, PW, PH, 7); ctx.fill();
+    ctx.fillStyle = '#ffd400';                  // left paddle: yellow
+    ctx.beginPath(); ctx.roundRect(MARGIN, left.y, PW, PH, 7); ctx.fill();
+    ctx.fillStyle = mode === 'duo' ? '#ff7a7a' : '#7fd4ff';   // blue when it is the computer
+    ctx.beginPath(); ctx.roundRect(W - MARGIN - PW, right.y, PW, PH, 7); ctx.fill();
 
-    // Ball
     ctx.fillStyle = '#ffffff';
     ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
 
@@ -147,11 +183,8 @@
     }
   }
 
-  (function loop() {
-    if (running) step();
-    draw();
-    requestAnimationFrame(loop);
-  })();
+  newGame();
+  (function loop() { if (running && !paused) step(); draw(); requestAnimationFrame(loop); })();
 })();
 </script>
 </body>
